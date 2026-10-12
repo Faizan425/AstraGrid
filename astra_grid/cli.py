@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 
 from .config import built_in_scenarios, scenario_from_id
-from .evaluation import compare, export_comparison, export_run, run_all
+from .evaluation import benchmark, compare, export_benchmark, export_comparison, export_run, run_all
 from .runner import SimulationRun
 
 
@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> None:
     subs = parser.add_subparsers(dest="command", required=True)
     run_p = subs.add_parser("run"); run_p.add_argument("scenario", choices=sorted(built_in_scenarios())); run_p.add_argument("--controller", choices=["astragrid", "baseline"], default="astragrid"); run_p.add_argument("--steps", type=int, default=None); run_p.add_argument("--output", type=Path, default=Path("outputs")); run_p.add_argument("--trace", action="store_true")
     cmp_p = subs.add_parser("compare"); cmp_p.add_argument("scenario", choices=sorted(built_in_scenarios())); cmp_p.add_argument("--steps", type=int, default=None); cmp_p.add_argument("--output", type=Path, default=Path("outputs"))
+    bench_p = subs.add_parser("benchmark", help="reproducible paired controller benchmark")
+    bench_p.add_argument("scenarios", nargs="*", help="built-in scenario IDs; omit to benchmark all")
+    bench_p.add_argument("--seed", type=int, action="append", help="repeat each selected scenario for this seed (may be supplied more than once)")
+    bench_p.add_argument("--steps", type=int, default=None)
+    bench_p.add_argument("--output", type=Path, default=Path("outputs") / "benchmark")
     all_p = subs.add_parser("run-all"); all_p.add_argument("--steps", type=int, default=None); all_p.add_argument("--output", type=Path, default=Path("outputs"))
     args = parser.parse_args(argv)
     if args.command == "run":
@@ -34,6 +39,10 @@ def main(argv: list[str] | None = None) -> None:
         paths = export_run(run, args.output); print(f"Finished {args.scenario} with {args.controller}. Artefacts: {paths['json']}, {paths['csv']}")
     elif args.command == "compare":
         runs = compare(scenario_from_id(args.scenario), args.steps); path = export_comparison(runs, args.output); print(f"Comparison written to {path}")
+    elif args.command == "benchmark":
+        report = benchmark(args.scenarios or None, seeds=args.seed, steps=args.steps)
+        paths = export_benchmark(report, args.output)
+        print(f"Benchmark completed: {len(report['runs'])} runs, {len(report['failures'])} non-duration-complete/unsupported entries. Report: {paths['json']}")
     else:
         results = run_all(args.output, args.steps); print(f"Completed {len(results)} controller/scenario runs in {args.output}")
 

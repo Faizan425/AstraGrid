@@ -25,7 +25,7 @@ class MissionDebtLedger:
         self.history: list[dict[str, object]] = []
 
     def schedulable(self, step: int) -> list[MissionTask]:
-        return [t for t in self.tasks.values() if t.status in {TaskStatus.PENDING, TaskStatus.RUNNING} and step <= t.config.deadline_step and (not t.config.hard_deadline or step + t.remaining_steps - 1 <= t.config.deadline_step)]
+        return [t for t in self.tasks.values() if t.status in {TaskStatus.PENDING, TaskStatus.RUNNING} and t.config.release_step <= step <= t.config.deadline_step and (not t.config.hard_deadline or step + t.remaining_steps - 1 <= t.config.deadline_step)]
 
     def mark_deferred(self, task_id: str, step: int, reason: str) -> Event | None:
         task = self.tasks[task_id]
@@ -51,7 +51,7 @@ class MissionDebtLedger:
         events: list[Event] = []
         for task in self.tasks.values():
             impossible_hard_completion = task.config.hard_deadline and step + task.remaining_steps - 1 > task.config.deadline_step
-            if task.status in {TaskStatus.PENDING, TaskStatus.RUNNING} and (step > task.config.deadline_step or impossible_hard_completion):
+            if task.status in {TaskStatus.PENDING, TaskStatus.RUNNING} and step >= task.config.release_step and (step > task.config.deadline_step or impossible_hard_completion):
                 task.status = TaskStatus.MISSED
                 reason = "HARD_DEADLINE_UNMET" if task.config.hard_deadline else "SOFT_DEADLINE_MISSED"
                 message = f"Hard deadline cannot be met for `{task.config.id}` under the current progress; no deadline was changed." if task.config.hard_deadline else f"Deadline cannot be met for `{task.config.id}`; no deadline was changed."
@@ -59,4 +59,4 @@ class MissionDebtLedger:
         return events
 
     def snapshot(self) -> list[dict[str, object]]:
-        return [{"id": task.config.id, "status": task.status, "completed_steps": task.completed_steps, "remaining_steps": task.remaining_steps, "deadline_step": task.config.deadline_step, "hard_deadline": task.config.hard_deadline, "deferrals": task.deferrals} for task in self.tasks.values()]
+        return [{"id": task.config.id, "status": task.status, "completed_steps": task.completed_steps, "remaining_steps": task.remaining_steps, "release_step": task.config.release_step, "deadline_step": task.config.deadline_step, "hard_deadline": task.config.hard_deadline, "deferrals": task.deferrals} for task in self.tasks.values()]

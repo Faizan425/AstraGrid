@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 astragrid = "astra_grid.cli:main"
+astragrid-gui = "astra_grid.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["astra_grid*"]

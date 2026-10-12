@@ -48,6 +48,9 @@ class Observation:
     co2_kg: float | None
     water_kg: float | None
     soc_sensors: dict[str, float | None]
+    # Equipment health is an observed telemetry channel, not direct simulator
+    # truth. Values can be missing or corrupted by telemetry faults.
+    equipment_status: dict[str, float | bool | None] = field(default_factory=dict)
 
 
 @dataclass
@@ -83,6 +86,9 @@ class Plan:
     status: str
     objective: float | None = None
     message: str = ""
+    # Kept separately from status: an "optimal" empty-work plan need not have
+    # invoked SciPy, while a time-limited plan may have.
+    solver_called: bool = False
 
 
 @dataclass
@@ -90,6 +96,8 @@ class ValidationResult:
     accepted: bool
     reasons: list[str]
     projected_battery_kwh: float | None = None
+    warnings: list[str] = field(default_factory=list)
+    supply_deficit_kw: float = 0.0
 
 
 @dataclass

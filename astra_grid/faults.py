@@ -8,6 +8,12 @@ from .config import FaultConfig
 
 @dataclass(frozen=True)
 class Capability:
+    """True simulator capability or a controller estimate with this shape.
+
+    ``FaultEngine.capabilities`` returns true physical capability. The runner
+    constructs its separate controller-visible estimate from telemetry; it
+    never passes this truth object to a controller.
+    """
     solar_factor: float = 1.0
     battery_capacity_factor: float = 1.0
     battery_discharge_factor: float = 1.0

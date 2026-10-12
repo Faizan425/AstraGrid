@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .config import ScenarioConfig
 from .faults import Capability, FaultEngine
 from .models import Action, PhysicalState, Transition
+from .power import project_power_balance
 from .tasks import MissionDebtLedger
 
 
@@ -62,33 +63,46 @@ class HabitatSimulator:
         before = self._state.copy(); cap = self.capabilities(); cfg = self.config
         dt, b, p, life, thermal = cfg.dt_hours, cfg.battery, cfg.power, cfg.life_support, cfg.thermal
         usable_capacity = b.capacity_kwh * cap.battery_capacity_factor
-        transition_error: str | None = None
+        errors: list[str] = []
         if self._state.battery_kwh > usable_capacity + 1e-9:
             lost = self._state.battery_kwh - usable_capacity
             self._state.battery_kwh = usable_capacity
-            transition_error = f"BATTERY_CAPACITY_LOSS:{lost:.3f}kWh"
+            errors.append(f"BATTERY_CAPACITY_LOSS:{lost:.3f}kWh")
         if not cap.computer_available:
-            transition_error = transition_error or "CONTROL_COMPUTER_UNAVAILABLE"
+            errors.append("CONTROL_COMPUTER_UNAVAILABLE")
+        if not cap.pdu_available:
+            errors.append("PDU_UNAVAILABLE")
+        if cap.battery_discharge_factor <= 0:
+            errors.append("BATTERY_DISCHARGE_UNAVAILABLE")
+        if action.oxygen_generator_on and cap.oxygen_factor <= 0:
+            errors.append("OXYGEN_GENERATOR_UNAVAILABLE")
+        if action.co2_removal_on and cap.co2_factor <= 0:
+            errors.append("CO2_REMOVAL_UNAVAILABLE")
+        if action.water_recovery_on and cap.water_factor <= 0:
+            errors.append("WATER_RECOVERY_UNAVAILABLE")
+        if action.heater_on and not cap.heater_available:
+            errors.append("HEATER_UNAVAILABLE")
         loads = self.load_breakdown(action, cap)
         solar = self.solar_kw()
-        backup = min(max(action.backup_kw, 0), p.backup_max_kw) if (p.backup_available and cap.backup_available) else 0.0
-        source_kw = solar + backup
-        # The PDU applies source-to-bus efficiency. Battery meets only remaining bus demand.
-        bus_from_source = source_kw * p.pdu_efficiency * cap.pdu_factor if cap.pdu_available else 0.0
-        need_kw = max(0.0, loads.total_kw - bus_from_source)
-        available_discharge_kw = min(b.max_discharge_kw * cap.battery_discharge_factor, self._state.battery_kwh * b.discharge_efficiency / dt)
-        discharge = min(need_kw, available_discharge_kw)
-        self._state.battery_kwh -= discharge * dt / b.discharge_efficiency
-        supplied = bus_from_source + discharge
-        excess_source_bus_kw = max(0.0, bus_from_source - loads.total_kw)
-        charge_input_kw = min(excess_source_bus_kw, b.max_charge_kw, (usable_capacity - self._state.battery_kwh) / (dt * b.charge_efficiency))
-        self._state.battery_kwh += charge_input_kw * dt * b.charge_efficiency
+        if not 0.0 <= action.backup_kw <= p.backup_max_kw:
+            errors.append("INVALID_BACKUP_COMMAND")
+        if action.backup_kw > 0 and (not p.backup_available or not cap.backup_available):
+            errors.append("BACKUP_UNAVAILABLE")
+        if action.backup_kw > 0 and not cap.pdu_available:
+            errors.append("PDU_UNAVAILABLE_FOR_SOURCE")
+        balance = project_power_balance(
+            cfg, cap, battery_kwh=self._state.battery_kwh, solar_kw=solar,
+            requested_backup_kw=action.backup_kw, demand_kw=loads.total_kw,
+        )
+        backup, discharge, charge_input_kw = balance.backup_kw, balance.discharge_kw, balance.charge_kw
+        self._state.battery_kwh = balance.battery_after_kwh
+        supplied = balance.supplied_kw
         # A power deficit is split explicitly: life-support/control demand before optional work.
         critical_shortfall = max(0.0, loads.critical_kw - supplied)
         noncritical_shortfall = max(0.0, loads.total_kw - supplied - critical_shortfall)
         if not action.air_circulation_on or not cap.air_available:
             critical_shortfall = max(critical_shortfall, life.air_circulation_kw)
-            transition_error = transition_error or "AIR_CIRCULATION_UNAVAILABLE"
+            errors.append("AIR_CIRCULATION_UNAVAILABLE")
 
         # Resource balances. Production only occurs when required equipment was powered/requested and healthy.
         requested_oxygen_output = life.oxygen_generation_kgph * cap.oxygen_factor if action.oxygen_generator_on and supplied >= loads.critical_kw else 0.0
@@ -118,4 +132,4 @@ class HabitatSimulator:
         self._state.step += 1
         if self._state.oxygen_kg <= 0 or self._state.water_kg <= 0 or critical_shortfall > 0:
             self._state.terminal = self._state.terminal or (self._state.oxygen_kg <= 0 or self._state.water_kg <= 0)
-        return Transition(before, self._state.copy(), solar, backup, charge_input_kw, discharge, loads.total_kw, supplied, critical_shortfall, noncritical_shortfall, resource_shortfalls, transition_error)
+        return Transition(before, self._state.copy(), solar, backup, charge_input_kw, discharge, loads.total_kw, supplied, critical_shortfall, noncritical_shortfall, resource_shortfalls, ";".join(errors) or None)
