@@ -1,0 +1,35 @@
+# Python bytecode and test tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artefacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# AstraGrid-generated experiment output
+outputs/
+demo_output/
+validation_outputs/
+
+# Local configuration and editor files
+.env
+.env.*
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
