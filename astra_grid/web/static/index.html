@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AstraGrid — Lunar Habitat Resource Management Mission Control and Resilience Simulation Dashboard">
+  <title>AstraGrid — Lunar Habitat Mission Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Top Navigation & Mission Control Header -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="14" stroke="#00f0ff" stroke-width="1.5" stroke-dasharray="4 2"/>
+          <circle cx="16" cy="16" r="8" fill="url(#core-grad)"/>
+          <path d="M16 4V10M16 22V28M4 16H10M22 16H28" stroke="#00f0ff" stroke-width="1.5" stroke-linecap="round"/>
+          <defs>
+            <linearGradient id="core-grad" x1="8" y1="8" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#00f0ff"/>
+              <stop offset="1" stop-color="#3b82f6"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-title">ASTRAGRID</span>
+        <span class="brand-subtitle">LUNAR HABITAT MISSION CONTROL</span>
+      </div>
+    </div>
+
+    <!-- Live Mission Status HUD -->
+    <div class="header-hud">
+      <div class="hud-item" id="hud-mode-container">
+        <span class="hud-label">HABITAT MODE</span>
+        <span class="hud-badge mode-normal" id="hud-mode">NORMAL</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">MISSION TIME</span>
+        <span class="hud-value mono" id="hud-time">STEP 00 (0.0h)</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">SURVIVAL HORIZON</span>
+        <span class="hud-value mono" id="hud-horizon">-- h</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">CONTROLLER</span>
+        <span class="hud-value" id="hud-controller">AstraGrid MILP</span>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="header-actions">
+      <a href="https://github.com" target="_blank" class="btn-icon" title="Documentation">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      </a>
+      <button class="btn btn-sm btn-ghost" id="btn-theme-toggle" title="Toggle Sound / Telemetry Ping">
+        <span class="status-indicator-dot online"></span> SYSTEM LIVE
+      </button>
+    </div>
+  </header>
+
+  <!-- Control Deck Ribbon -->
+  <section class="control-deck" aria-label="Simulation Controls">
+    <div class="deck-group">
+      <div class="control-field">
+        <label for="select-scenario">SCENARIO</label>
+        <div class="select-wrapper">
+          <select id="select-scenario" aria-label="Select Scenario">
+            <option value="nominal_day">Nominal Day (Cyclic illumination)</option>
+            <option value="solar_array_damage">Solar Array Damage (35% generation)</option>
+            <option value="battery_degradation_or_failure">Battery Degradation (45% cap/discharge)</option>
+            <option value="byzantine_soc_sensor">Byzantine SOC Sensor Anomaly</option>
+            <option value="combined_fault" selected>Combined Fault (Solar + Sensor)</option>
+            <option value="hard_deadline_under_shortage">Hard Deadline Under Shortage</option>
+            <option value="constrained_task_selection">Constrained Task Selection (Knapsack)</option>
+            <option value="deadline_release_pressure">Deadline Release Pressure</option>
+            <option value="early_solar_fault_long_workload">Early Solar Fault Long Workload</option>
+            <option value="early_backup_unavailable">Early Backup Unavailable</option>
+            <option value="prolonged_solar_outage">Prolonged Solar Outage (Eclipse)</option>
+            <option value="life_support_resource_shortage">Life Support Resource Shortage</option>
+            <option value="water_recovery_failure">Water Recovery Failure</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-field">
+        <label for="select-controller">CONTROLLER</label>
+        <div class="select-wrapper">
+          <select id="select-controller" aria-label="Select Controller">
+            <option value="astragrid">AstraGrid (Rolling-Horizon MILP)</option>
+            <option value="baseline">Baseline (Priority Heuristic)</option>
+            <option value="compare">Paired Comparison (AstraGrid vs Baseline)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stepper Buttons -->
+    <div class="deck-buttons">
+      <button class="btn btn-primary" id="btn-init" title="Initialize new simulation with chosen configuration">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        INITIALIZE
+      </button>
+
+      <button class="btn btn-secondary" id="btn-step" title="Advance one 15-minute simulation timestep">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        STEP (15m)
+      </button>
+
+      <button class="btn btn-secondary" id="btn-step-10" title="Advance 10 timesteps (2.5 hours)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
+        STEP 10
+      </button>
+
+      <button class="btn btn-outline" id="btn-auto-play" title="Auto-advance timesteps automatically">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+        <span id="label-auto-play">AUTO RUN</span>
+      </button>
+
+      <button class="btn btn-accent" id="btn-run-all" title="Run to the end of the 24-hour scenario">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+        RUN ALL (24h)
+      </button>
+    </div>
+
+    <!-- Progress Scrubber -->
+    <div class="deck-progress">
+      <div class="progress-bar-container">
+        <div class="progress-bar-fill" id="timeline-progress-fill" style="width: 0%;"></div>
+      </div>
+      <div class="progress-labels mono">
+        <span id="lbl-progress-step">STEP 0 / 96</span>
+        <span id="lbl-progress-pct">0.0%</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Layout Grid -->
+  <main class="app-main">
+    <!-- Top Cockpit HUD Cards -->
+    <section class="cockpit-grid" aria-label="Cockpit Telemetry">
+      <!-- Card 1: Battery Storage & SOC -->
+      <article class="metric-card glass-panel" id="card-battery">
+        <div class="card-header">
+          <span class="card-title">BATTERY STORAGE</span>
+          <span class="card-badge" id="badge-battery-status">HEALTHY</span>
+        </div>
+        <div class="gauge-container">
+          <div class="radial-gauge">
+            <svg class="radial-svg" viewBox="0 0 120 120">
+              <circle class="radial-bg" cx="60" cy="60" r="50"/>
+              <circle class="radial-reserve" cx="60" cy="60" r="50" id="gauge-reserve-arc"/>
+              <circle class="radial-fill" cx="60" cy="60" r="50" id="gauge-soc-arc"/>
+            </svg>
+            <div class="radial-text">
+              <span class="radial-val mono" id="val-soc">--%</span>
+              <span class="radial-sub">STATE OF CHARGE</span>
+            </div>
+          </div>
+          <div class="metric-stat-list">
+            <div class="stat-row">
+              <span class="stat-name">Stored Energy</span>
+              <span class="stat-val mono" id="val-battery-kwh">-- kWh</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-name">Safe Reserve</span>
+              <span class="stat-val mono" id="val-battery-reserve">-- kWh</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-name">Net Rate</span>
+              <span class="stat-val mono" id="val-battery-rate">-- kW</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 2: Power Grid Bus Balance -->
+      <article class="metric-card glass-panel" id="card-power">
+        <div class="card-header">
+          <span class="card-title">POWER BUS BALANCE</span>
+          <span class="card-badge" id="badge-bus-status">BALANCED</span>
+        </div>
+        <div class="power-bars-container">
+          <div class="power-metric-row">
+            <div class="p-meta">
+              <span class="p-name"><span class="dot-indicator dot-yellow"></span> Solar Generation</span>
+              <span class="p-val mono" id="val-solar-kw">-- kW</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-yellow" id="bar-solar" style="width: 0%;"></div></div>
+          </div>
+
+          <div class="power-metric-row">
+            <div class="p-meta">
+              <span class="p-name"><span class="dot-indicator dot-cyan"></span> Backup Generator</span>
+              <span class="p-val mono" id="val-backup-kw">-- kW</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-cyan" id="bar-backup" style="width: 0%;"></div></div>
+          </div>
+
+          <div class="power-metric-row">
+            <div class="p-meta">
+              <span class="p-name"><span class="dot-indicator dot-purple"></span> Bus Load Demand</span>
+              <span class="p-val mono" id="val-demand-kw">-- kW</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-purple" id="bar-demand" style="width: 0%;"></div></div>
+          </div>
+
+          <div class="power-meta-footer">
+            <div class="footer-stat">
+              <span class="f-lbl">CRITICAL LOAD</span>
+              <span class="f-val mono" id="val-critical-kw">-- kW</span>
+            </div>
+            <div class="footer-stat">
+              <span class="f-lbl">CRIT SHORTFALL</span>
+              <span class="f-val mono text-alarm" id="val-shortfall-kw">0.00 kW</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 3: Life Support Systems -->
+      <article class="metric-card glass-panel" id="card-life-support">
+        <div class="card-header">
+          <span class="card-title">LIFE SUPPORT INVENTORIES</span>
+          <span class="card-badge badge-green" id="badge-life-status">NOMINAL</span>
+        </div>
+        <div class="life-support-grid">
+          <div class="life-item">
+            <div class="life-item-header">
+              <span class="life-lbl">Oxygen (O₂)</span>
+              <span class="life-val mono" id="val-oxygen">-- kg</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-cyan" id="bar-oxygen" style="width: 0%;"></div></div>
+            <span class="life-sub mono" id="val-oxygen-sub">Reserve: -- kg</span>
+          </div>
+
+          <div class="life-item">
+            <div class="life-item-header">
+              <span class="life-lbl">Carbon Dioxide (CO₂)</span>
+              <span class="life-val mono" id="val-co2">-- kg</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-amber" id="bar-co2" style="width: 0%;"></div></div>
+            <span class="life-sub mono" id="val-co2-sub">Limit: -- kg</span>
+          </div>
+
+          <div class="life-item">
+            <div class="life-item-header">
+              <span class="life-lbl">Potable Water</span>
+              <span class="life-val mono" id="val-water">-- kg</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-blue" id="bar-water" style="width: 0%;"></div></div>
+            <span class="life-sub mono" id="val-water-sub">Reserve: -- kg</span>
+          </div>
+
+          <div class="life-item">
+            <div class="life-item-header">
+              <span class="life-lbl">Cabin Temp</span>
+              <span class="life-val mono" id="val-temp">-- °C</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill fill-green" id="bar-temp" style="width: 0%;"></div></div>
+            <span class="life-sub mono" id="val-temp-sub">Envelope: 18 - 24°C</span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 4: Mission Debt & Tasks -->
+      <article class="metric-card glass-panel" id="card-debt">
+        <div class="card-header">
+          <span class="card-title">MISSION WORKLOAD & DEBT</span>
+          <span class="card-badge" id="badge-debt-status">TRACKED</span>
+        </div>
+        <div class="debt-stat-container">
+          <div class="kpi-mini-grid">
+            <div class="kpi-mini">
+              <span class="kpi-mini-val mono text-cyan" id="val-tasks-done">0</span>
+              <span class="kpi-mini-lbl">TASKS DONE</span>
+            </div>
+            <div class="kpi-mini">
+              <span class="kpi-mini-val mono text-yellow" id="val-tasks-pending">0</span>
+              <span class="kpi-mini-lbl">PENDING</span>
+            </div>
+            <div class="kpi-mini">
+              <span class="kpi-mini-val mono text-alarm" id="val-tasks-missed">0</span>
+              <span class="kpi-mini-lbl">MISSED</span>
+            </div>
+            <div class="kpi-mini">
+              <span class="kpi-mini-val mono" id="val-debt-steps">0</span>
+              <span class="kpi-mini-lbl">DEBT STEPS</span>
+            </div>
+          </div>
+          <div class="debt-footer-info">
+            <div class="info-row">
+              <span>Fallback Activations:</span>
+              <span class="mono" id="val-fallbacks">0</span>
+            </div>
+            <div class="info-row">
+              <span>Unvalidated Actions:</span>
+              <span class="mono text-green" id="val-unvalidated">0</span>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Navigation Tabs for Detailed Workspace -->
+    <nav class="view-nav-tabs" aria-label="Dashboard Views">
+      <button class="nav-tab active" data-tab="tab-cockpit" id="tabbtn-cockpit">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Cockpit & Power Flow
+      </button>
+
+      <button class="nav-tab" data-tab="tab-charts" id="tabbtn-charts">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Telemetry Charts
+      </button>
+
+      <button class="nav-tab" data-tab="tab-tasks" id="tabbtn-tasks">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+        Mission Task Ledger
+      </button>
+
+      <button class="nav-tab" data-tab="tab-compare" id="tabbtn-compare">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+        Matched Controller Comparison
+      </button>
+
+      <button class="nav-tab" data-tab="tab-events" id="tabbtn-events">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Event Timeline & Telemetry Stream
+      </button>
+
+      <button class="nav-tab" data-tab="tab-replay" id="tabbtn-replay">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/><line x1="19" y1="3" x2="19" y2="21"/></svg>
+        Step-by-Step Mission Replay
+      </button>
+    </nav>
+
+    <!-- Tab Panes -->
+    <section class="tab-content-area">
+      <!-- Tab 1: Cockpit & Power Flow Schematic -->
+      <div class="tab-pane active" id="tab-cockpit">
+        <div class="cockpit-dual-col">
+          <!-- Left: Schematic Diagram -->
+          <div class="schematic-panel glass-panel">
+            <h2 class="section-title">POWER & LIFE SUPPORT SCHEMATIC</h2>
+            <div class="schematic-canvas-container">
+              <svg class="schematic-svg" id="schematic-svg" viewBox="0 0 800 420">
+                <!-- Source Nodes -->
+                <g class="node-group" id="node-solar" transform="translate(60, 60)">
+                  <rect width="140" height="70" rx="8" class="node-rect" stroke="#eab308"/>
+                  <text x="70" y="28" class="node-title">SOLAR ARRAY</text>
+                  <text x="70" y="50" class="node-val mono" id="schem-val-solar">0.0 kW</text>
+                </g>
+
+                <g class="node-group" id="node-backup" transform="translate(60, 175)">
+                  <rect width="140" height="70" rx="8" class="node-rect" stroke="#00f0ff"/>
+                  <text x="70" y="28" class="node-title">BACKUP GEN</text>
+                  <text x="70" y="50" class="node-val mono" id="schem-val-backup">0.0 kW</text>
+                </g>
+
+                <g class="node-group" id="node-battery" transform="translate(60, 290)">
+                  <rect width="140" height="70" rx="8" class="node-rect" stroke="#10b981"/>
+                  <text x="70" y="28" class="node-title">BATTERY BANK</text>
+                  <text x="70" y="50" class="node-val mono" id="schem-val-battery">60.0 kWh</text>
+                </g>
+
+                <!-- Central PDU Node -->
+                <g class="node-group" id="node-pdu" transform="translate(320, 160)">
+                  <rect width="160" height="100" rx="10" class="node-rect pdu-rect"/>
+                  <text x="80" y="36" class="node-title pdu-title">POWER DISTRIBUTION</text>
+                  <text x="80" y="56" class="node-subtitle">PDU (η = 96%)</text>
+                  <text x="80" y="80" class="node-val mono" id="schem-val-pdu">0.0 kW</text>
+                </g>
+
+                <!-- Load Nodes -->
+                <g class="node-group" id="node-critical" transform="translate(580, 80)">
+                  <rect width="160" height="70" rx="8" class="node-rect" stroke="#ef4444"/>
+                  <text x="80" y="28" class="node-title">LIFE SUPPORT & CONTROL</text>
+                  <text x="80" y="50" class="node-val mono" id="schem-val-critical">10.5 kW</text>
+                </g>
+
+                <g class="node-group" id="node-thermal" transform="translate(580, 180)">
+                  <rect width="160" height="70" rx="8" class="node-rect" stroke="#f59e0b"/>
+                  <text x="80" y="28" class="node-title">CABIN HEATING</text>
+                  <text x="80" y="50" class="node-val mono" id="schem-val-thermal">0.0 kW</text>
+                </g>
+
+                <g class="node-group" id="node-tasks" transform="translate(580, 280)">
+                  <rect width="160" height="70" rx="8" class="node-rect" stroke="#8b5cf6"/>
+                  <text x="80" y="28" class="node-title">MISSION WORKLOADS</text>
+                  <text x="80" y="50" class="node-val mono" id="schem-val-tasks">0.0 kW</text>
+                </g>
+
+                <!-- Connecting Flow Lines -->
+                <path d="M200 95 H260 V210 H320" class="flow-line" id="flow-solar" stroke="#eab308"/>
+                <path d="M200 210 H320" class="flow-line" id="flow-backup" stroke="#00f0ff"/>
+                <path d="M200 325 H260 V210 H320" class="flow-line" id="flow-battery" stroke="#10b981"/>
+
+                <path d="M480 210 H530 V115 H580" class="flow-line" id="flow-critical" stroke="#ef4444"/>
+                <path d="M480 210 H580" class="flow-line" id="flow-thermal" stroke="#f59e0b"/>
+                <path d="M480 210 H530 V315 H580" class="flow-line" id="flow-tasks" stroke="#8b5cf6"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Right: Control Proposal & Safety Validation Inspector -->
+          <div class="control-inspector glass-panel">
+            <h2 class="section-title">CONTROL & VALIDATION INSPECTOR</h2>
+            <div class="inspector-box">
+              <div class="box-row">
+                <span class="box-lbl">Proposed Controller:</span>
+                <span class="box-val mono" id="insp-proposed-ctrl">--</span>
+              </div>
+              <div class="box-row">
+                <span class="box-lbl">Solver Proposal Status:</span>
+                <span class="box-badge" id="insp-solver-status">--</span>
+              </div>
+              <div class="box-row">
+                <span class="box-lbl">Safety Validation:</span>
+                <span class="box-badge" id="insp-validation-status">--</span>
+              </div>
+              <div class="box-row">
+                <span class="box-lbl">Executed Controller:</span>
+                <span class="box-val mono" id="insp-executed-ctrl">--</span>
+              </div>
+              <div class="box-row">
+                <span class="box-lbl">Fallback Action Used:</span>
+                <span class="box-val" id="insp-fallback-used">No</span>
+              </div>
+            </div>
+
+            <div class="inspector-details">
+              <h3 class="subsection-title">VALIDATOR AUDIT REASONS</h3>
+              <ul class="reason-list" id="insp-reasons-list">
+                <li class="reason-item text-muted">Awaiting simulation step...</li>
+              </ul>
+            </div>
+
+            <div class="inspector-details">
+              <h3 class="subsection-title">EXECUTED ACTION DETAILS</h3>
+              <pre class="action-json mono" id="insp-action-json">{"task_ids": [], "backup_kw": 0}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Telemetry Charts -->
+      <div class="tab-pane" id="tab-charts">
+        <div class="charts-grid">
+          <!-- Chart 1: Power Balance -->
+          <div class="chart-panel glass-panel">
+            <div class="chart-header">
+              <h3 class="chart-title">POWER BUS GENERATION & DEMAND (kW)</h3>
+              <div class="chart-legend">
+                <span class="leg-item"><span class="dot-indicator dot-yellow"></span> Solar</span>
+                <span class="leg-item"><span class="dot-indicator dot-cyan"></span> Backup</span>
+                <span class="leg-item"><span class="dot-indicator dot-green"></span> Discharge</span>
+                <span class="leg-item"><span class="dot-indicator dot-purple"></span> Demand</span>
+                <span class="leg-item"><span class="dot-indicator dot-red"></span> Shortfall</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap">
+              <canvas id="canvas-power" class="telemetry-canvas" width="700" height="260"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 2: Battery State of Charge -->
+          <div class="chart-panel glass-panel">
+            <div class="chart-header">
+              <h3 class="chart-title">BATTERY STORAGE TRAJECTORY (kWh & SOC)</h3>
+              <div class="chart-legend">
+                <span class="leg-item"><span class="dot-indicator dot-cyan"></span> Battery Energy</span>
+                <span class="leg-item"><span class="dot-indicator dot-red"></span> Safe Reserve</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap">
+              <canvas id="canvas-battery" class="telemetry-canvas" width="700" height="260"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 3: Atmosphere & Water Resources -->
+          <div class="chart-panel glass-panel">
+            <div class="chart-header">
+              <h3 class="chart-title">ATMOSPHERE & WATER INVENTORIES (kg)</h3>
+              <div class="chart-legend">
+                <span class="leg-item"><span class="dot-indicator dot-cyan"></span> Oxygen</span>
+                <span class="leg-item"><span class="dot-indicator dot-yellow"></span> CO₂</span>
+                <span class="leg-item"><span class="dot-indicator dot-blue"></span> Water</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap">
+              <canvas id="canvas-resources" class="telemetry-canvas" width="700" height="260"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 4: Thermal Envelope -->
+          <div class="chart-panel glass-panel">
+            <div class="chart-header">
+              <h3 class="chart-title">CABIN THERMAL BALANCE (°C)</h3>
+              <div class="chart-legend">
+                <span class="leg-item"><span class="dot-indicator dot-green"></span> Temperature</span>
+                <span class="leg-item"><span class="dot-indicator dot-red"></span> Safe Range (18 - 24°C)</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap">
+              <canvas id="canvas-thermal" class="telemetry-canvas" width="700" height="260"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Mission Task Ledger -->
+      <div class="tab-pane" id="tab-tasks">
+        <div class="tasks-panel glass-panel">
+          <div class="tasks-header">
+            <h2 class="section-title">MISSION DEBT LEDGER & OPTIONAL WORKLOADS</h2>
+            <div class="tasks-meta">
+              <span class="badge badge-info" id="badge-task-count">0 Tasks Configured</span>
+            </div>
+          </div>
+          <div class="tasks-table-container">
+            <table class="data-table" id="table-tasks">
+              <thead>
+                <tr>
+                  <th>Task ID</th>
+                  <th>Priority</th>
+                  <th>Power Draw</th>
+                  <th>Duration</th>
+                  <th>Release</th>
+                  <th>Deadline</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Deferrals</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-tasks">
+                <tr><td colspan="10" class="text-muted text-center">No tasks loaded. Initialize a scenario.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Matched Controller Comparison -->
+      <div class="tab-pane" id="tab-compare">
+        <div class="compare-panel glass-panel">
+          <div class="compare-header">
+            <div>
+              <h2 class="section-title">MATCHED CONTROLLER COMPARISON</h2>
+              <p class="section-subtitle">AstraGrid Rolling-Horizon MILP vs Baseline Priority Heuristic on Identical Seed & Physical Scenario</p>
+            </div>
+            <button class="btn btn-primary" id="btn-run-comparison">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              RUN FULL COMPARISON
+            </button>
+          </div>
+
+          <!-- Comparison Delta Cards -->
+          <div class="delta-cards-grid" id="delta-cards-grid">
+            <div class="delta-card">
+              <span class="d-title">CRITICAL POWER SHORTFALL</span>
+              <span class="d-val mono" id="delta-shortfall">0.00 kWh</span>
+              <span class="d-sub" id="delta-shortfall-sub">Δ AstraGrid − Baseline</span>
+            </div>
+
+            <div class="delta-card">
+              <span class="d-title">TASKS COMPLETED</span>
+              <span class="d-val mono" id="delta-tasks">0</span>
+              <span class="d-sub" id="delta-tasks-sub">Δ Completed Tasks</span>
+            </div>
+
+            <div class="delta-card">
+              <span class="d-title">BATTERY RESERVE VIOLATIONS</span>
+              <span class="d-val mono" id="delta-reserve">0</span>
+              <span class="d-sub" id="delta-reserve-sub">Δ Reserve Violation Steps</span>
+            </div>
+
+            <div class="delta-card">
+              <span class="d-title">FALLBACK ACTIVATIONS</span>
+              <span class="d-val mono" id="delta-fallbacks">0</span>
+              <span class="d-sub" id="delta-fallbacks-sub">Δ Priority Fallbacks</span>
+            </div>
+          </div>
+
+          <!-- Comparison Side-by-Side Table -->
+          <div class="compare-table-container">
+            <table class="data-table" id="table-comparison">
+              <thead>
+                <tr>
+                  <th>Performance Metric</th>
+                  <th>AstraGrid (MILP)</th>
+                  <th>Baseline (Heuristic)</th>
+                  <th>Delta (Astra − Base)</th>
+                  <th>Trade-off Interpretation</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-comparison">
+                <tr><td colspan="5" class="text-muted text-center">Run a comparison to view side-by-side performance.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 5: Event Timeline & Telemetry Stream -->
+      <div class="tab-pane" id="tab-events">
+        <div class="events-split-grid">
+          <!-- Chronological Event Timeline -->
+          <div class="timeline-panel glass-panel">
+            <div class="timeline-header-bar">
+              <h2 class="section-title">CHRONOLOGICAL EVENT TIMELINE</h2>
+              <span class="badge badge-info" id="badge-event-count">0 Events</span>
+            </div>
+            <div class="event-feed-list" id="event-feed-list">
+              <div class="empty-feed-placeholder text-muted">Awaiting simulation events...</div>
+            </div>
+          </div>
+
+          <!-- Synthetic Telemetry Stream Inspector -->
+          <div class="stream-panel glass-panel">
+            <div class="timeline-header-bar">
+              <h2 class="section-title">SYNTHETIC TELEMETRY STREAM</h2>
+              <span class="status-indicator-dot online"></span>
+            </div>
+            <div class="stream-code-wrap">
+              <pre class="telemetry-json-viewer mono" id="telemetry-json-viewer">{"status": "Awaiting telemetry stream..."}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 6: Step-by-Step Mission Replay Player -->
+      <div class="tab-pane" id="tab-replay">
+        <div class="replay-player-panel glass-panel">
+          <div class="replay-player-header">
+            <div>
+              <h2 class="section-title">MISSION POST-MORTEM & STEP REPLAY</h2>
+              <p class="section-subtitle">8-Panel Operational Inspection at Each Timestep from Recorded Evidence</p>
+            </div>
+            <div class="replay-player-controls">
+              <button class="btn btn-secondary btn-sm" id="btn-replay-prev">&larr; PREV STEP</button>
+              <input type="range" class="replay-scrubber" id="replay-scrubber" min="0" max="0" value="0">
+              <button class="btn btn-secondary btn-sm" id="btn-replay-next">NEXT STEP &rarr;</button>
+              <button class="btn btn-accent btn-sm" id="btn-replay-event">JUMP TO EVENT &rarr;</button>
+              <span class="replay-step-badge mono" id="lbl-replay-step">STEP 00 / 00</span>
+            </div>
+          </div>
+
+          <!-- 8-Box Replay Grid -->
+          <div class="replay-8box-grid">
+            <div class="replay-card">
+              <h4 class="replay-box-title">1. CONTROLLER OBSERVATION</h4>
+              <pre class="replay-code mono" id="replay-panel-1">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">2. ESTIMATED STATE & CAPABILITY</h4>
+              <pre class="replay-code mono" id="replay-panel-2">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">3. PROPOSED PLAN</h4>
+              <pre class="replay-code mono" id="replay-panel-3">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">4. INDEPENDENT VALIDATION</h4>
+              <pre class="replay-code mono" id="replay-panel-4">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">5. ACCEPTED PLAN / FALLBACK</h4>
+              <pre class="replay-code mono" id="replay-panel-5">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">6. EXECUTED ACTION (AUDIT)</h4>
+              <pre class="replay-code mono" id="replay-panel-6">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">7. PHYSICAL TRANSITION & STATE</h4>
+              <pre class="replay-code mono" id="replay-panel-7">--</pre>
+            </div>
+
+            <div class="replay-card">
+              <h4 class="replay-box-title">8. DEFICITS, WARNINGS & ANNOTATIONS</h4>
+              <pre class="replay-code mono" id="replay-panel-8">--</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

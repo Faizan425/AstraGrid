@@ -11,16 +11,46 @@ python -m pip install -e .
 astragrid run combined_fault --controller astragrid --trace --output outputs
 astragrid compare combined_fault --output outputs
 astragrid benchmark nominal_day combined_fault --seed 7 --output outputs\benchmark
+astragrid lab batch nominal_day solar_array_damage combined_fault --seed 42 --output outputs\resilience_lab
 astragrid run-all --output outputs
 uvicorn astra_grid.api:app --reload
 astragrid-gui
 ```
 
-The command line supports `run`, `compare`, `benchmark`, and `run-all`. `benchmark` accepts one or more built-in scenario IDs (or all scenarios when omitted) and repeatable `--seed` options. It writes `benchmark_report.json`, per-run data, paired deltas, aggregate summaries, and failures as CSV files. The API is process-local: restart loses run state unless it has been exported.
+The command line supports `run`, `compare`, `benchmark`, `run-all`, and `lab`. `lab` invokes **AstraGrid Resilience Lab** for automated batch experiments, independent evaluations, step-by-step mission replay, and interactive HTML reporting. See [the Resilience Lab guide](docs/resilience-lab.md) for full details.
 
-## Desktop dashboard
+## AstraGrid Resilience Lab
 
-Run `astragrid-gui` (or `python -m astra_grid.gui`) to open the optional local Tkinter control-room dashboard. It uses the same simulation engine as the CLI/API and includes scenario/controller selection, one-step and auto-run controls, telemetry charts, mission-debt/tasks, an audit log, demo-only fault injection, a raw Synthetic Telemetry Stream tab, and a separate side-by-side AstraGrid-versus-baseline comparison tab. When both comparison runs finish, that tab displays a final benchmark of safety, energy, task completion, fallback, and stopping metrics. Each GUI simulation step prints its raw reported synthetic observation as a JSON line in the launching PowerShell terminal. It requires the standard Python `tkinter` component; no web server is needed.
+Run `astragrid lab` commands for systematic evaluation and mission replay:
+- `astragrid lab list`: List all built-in scenarios, descriptions, durations, and fault targets.
+- `astragrid lab run <scenario> [--controller] [--seed] [--output]`: Run a single evaluated scenario, generating full per-step telemetry/state CSV and replay JSON.
+- `astragrid lab compare <scenario> [--seed] [--output]`: Run matched controller comparison (AstraGrid vs Baseline) on identical initial conditions with deltas and interactive HTML report.
+- `astragrid lab batch [scenarios...] [--controllers] [--seed] [--output]`: Run batch experiment with multi-seed aggregation and Student-t confidence intervals.
+- `astragrid lab report <directory>`: Regenerate standalone interactive HTML dashboard (`report.html`) from saved results without rerunning simulations.
+
+## Mission Control Web Interface
+
+Launch the modern browser-based Mission Control cockpit at `http://127.0.0.1:8000`:
+
+```powershell
+astragrid web
+# or custom host/port:
+astragrid web --host 127.0.0.1 --port 8000
+```
+
+Features included in the web interface:
+- **Cockpit HUD & Radial Gauges**: Real-time animated SOC radial gauge, battery kWh trajectory, power bus meters (solar, backup, load, critical shortfall), life-support inventories (O₂, CO₂, water, temperature), and mission debt KPIs.
+- **Power & Life Support Flow Schematic**: Interactive SVG diagram showing live energy flows between solar array, backup generator, battery bank, central PDU, and subsystems.
+- **Independent Validation Inspector**: Real-time display of solver proposed status, safety validator audit reasons, executed actions, and fallback policy notifications.
+- **Live Telemetry Charts**: Zero-dependency HTML5 Canvas time-series charts for power balance, battery reserve envelopes, atmosphere/water consumables, and thermal envelope.
+- **Mission Task Ledger**: Interactive status table showing task priorities, release/deadline horizons, progress bars, and deferral counts.
+- **Matched Controller Comparison**: One-click side-by-side evaluation of AstraGrid MILP vs. Baseline Heuristic with live delta cards and trade-off metrics.
+- **Event Timeline & Telemetry Stream**: Chronological event feed categorized by safety, control, fault, and telemetry events, plus raw observation JSON stream.
+- **8-Panel Post-Mortem Mission Replay**: Scrub step-by-step through any completed mission with operational telemetry, state estimates, proposed plans, validator audits, executed actions, and physical transitions.
+
+## Desktop dashboard (Tkinter)
+
+Run `astragrid-gui` (or `python -m astra_grid.gui`) to open the local Tkinter control-room dashboard. It uses the same simulation engine as the CLI/API and includes scenario/controller selection, one-step and auto-run controls, telemetry charts, mission-debt/tasks, an audit log, demo-only fault injection, a raw Synthetic Telemetry Stream tab, and a separate side-by-side AstraGrid-versus-baseline comparison tab. It requires the standard Python `tkinter` component; no web server is needed.
 
 ## API
 
