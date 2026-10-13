@@ -18,8 +18,12 @@ from .telemetry import CapabilityEstimator, StateEstimator, TelemetryGenerator
 
 class SimulationRun:
     """A single in-memory run. Control logic only receives telemetry-derived estimates."""
-    def __init__(self, config: ScenarioConfig, controller_name: str = "astragrid", *, trace_telemetry: bool = False, trace_label: str | None = None) -> None:
-        if controller_name not in {"astragrid", "baseline"}: raise ValueError("controller must be astragrid or baseline")
+    def __init__(self, config: ScenarioConfig, controller_name: str = "astragrid", *, trace_telemetry: bool = False, trace_label: str | None = None, controller: str | None = None) -> None:
+        if controller is not None:
+            controller_name = controller
+        valid_controllers = {"astragrid", "baseline", "fixed_schedule", "rule_based"}
+        if controller_name not in valid_controllers:
+            raise ValueError(f"controller must be one of {valid_controllers}")
         self.id, self.config, self.controller_name = str(uuid4()), config, controller_name
         self.trace_telemetry = trace_telemetry
         self.trace_label = trace_label or controller_name
@@ -28,7 +32,16 @@ class SimulationRun:
         self.telemetry = TelemetryGenerator(config, self.faults)
         self.estimator, self.capability_estimator, self.ledger = StateEstimator(config), CapabilityEstimator(), MissionDebtLedger(config.tasks)
         self.validator, self.manager, self.survival_estimator = PlanValidator(config), FaultManager(), SurvivalEstimator(config)
-        self.controller = MilpController(config, self.validator) if controller_name == "astragrid" else BaselineController(config, self.validator)
+        if controller_name == "astragrid":
+            self.controller = MilpController(config, self.validator)
+        elif controller_name == "fixed_schedule":
+            from .policies.fixed_schedule import FixedScheduleController
+            self.controller = FixedScheduleController(config, self.validator)
+        elif controller_name == "rule_based":
+            from .policies.rule_based import RuleBasedResourceAwareController
+            self.controller = RuleBasedResourceAwareController(config, self.validator)
+        else:
+            self.controller = BaselineController(config, self.validator)
         self.events: list[Event] = []
         self.actual_fault_events: list[dict[str, object]] = []
         self.detected_faults: list[dict[str, object]] = []
@@ -287,6 +300,7 @@ class SimulationRun:
         truth = self.simulator.state_for_evaluation
         tasks = self.ledger.snapshot()
         return {
+            "controller": self.controller_name,
             "steps": truth.step,
             "critical_load_shortfall_kwh": truth.cumulative_critical_shortfall_kwh,
             "noncritical_load_shortfall_kwh": truth.cumulative_noncritical_shortfall_kwh,
@@ -295,6 +309,13 @@ class SimulationRun:
             "minimum_oxygen_kg": min([t.after.oxygen_kg for t in self.transitions] or [truth.oxygen_kg]),
             "maximum_co2_kg": max([t.after.co2_kg for t in self.transitions] or [truth.co2_kg]),
             "minimum_water_kg": min([t.after.water_kg for t in self.transitions] or [truth.water_kg]),
+            "initial_water_kg": self.transitions[0].before.water_kg if self.transitions else truth.water_kg,
+            "final_water_kg": truth.water_kg,
+            "total_water_recovered_kg": sum(t.water_recovered_kg for t in self.transitions),
+            "total_water_consumed_kg": sum(t.water_demand_kg for t in self.transitions),
+            "water_reserve_violations": sum(1 for t in self.transitions if t.after.water_kg < self.config.life_support.water_reserve_kg - 1e-9),
+            "water_reserve_deficit_kgh": sum(max(0.0, self.config.life_support.water_reserve_kg - t.after.water_kg) * self.config.dt_hours for t in self.transitions),
+            "water_recovery_energy_kwh": sum(t.water_recovery_power_kw * self.config.dt_hours for t in self.transitions),
             "tasks_completed": sum(1 for task in tasks if task["status"] == "completed"),
             "missed_hard_deadlines": sum(1 for task in tasks if task["status"] == "missed" and task["hard_deadline"]),
             "mission_debt_steps": sum(int(task["remaining_steps"]) for task in tasks if task["status"] in {"pending", "running"}),

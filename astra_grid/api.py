@@ -12,14 +12,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from . import __version__
-from .config import ScenarioConfig, built_in_scenarios, scenario_from_id
+from .config import FaultConfig, ScenarioConfig, TaskConfig, built_in_scenarios, scenario_from_id
 from .evaluation import benchmark_from_runs, compare, create_paired_runs
+from .models import Event
 from .runner import SimulationRun
+from .tasks import MissionTask
 
 
 class CreateRunRequest(BaseModel):
     scenario_id: str
-    controller: Literal["astragrid", "baseline", "compare"] = "astragrid"
+    controller: Literal["astragrid", "baseline", "compare", "fixed_schedule", "rule_based"] = "astragrid"
     overrides: dict[str, object] = Field(default_factory=dict, description="Validated nested ScenarioConfig overrides.")
 
 
@@ -31,6 +33,23 @@ class CompareRequest(BaseModel):
     scenario_id: str
     steps: int | None = None
     seed: int | None = None
+
+
+class InjectFaultRequest(BaseModel):
+    target: str
+    parameters: dict[str, float | str | bool] = Field(default_factory=dict)
+    category: str = "physical"
+    duration_steps: int | None = None
+
+
+
+class AddTaskRequest(BaseModel):
+    id: str
+    power_kw: float
+    duration_steps: int
+    priority: int = 3
+    deadline_step: int | None = None
+    hard_deadline: bool = False
 
 
 class RunStore:
@@ -234,7 +253,115 @@ def create_app() -> FastAPI:
             "baseline_run_id": runs["baseline"].id,
         }
 
+    @app.post("/api/simulations/{run_id}/faults/inject")
+    def inject_fault(run_id: str, request: InjectFaultRequest) -> dict[str, object]:
+        run = store.get(run_id)
+        current_step = run.simulator.state_for_evaluation.step
+        end_step = current_step + request.duration_steps if request.duration_steps is not None else None
+
+        # Normalize category strictly to 'physical' or 'telemetry'
+        cat_raw = (request.category or "").strip().lower()
+        if cat_raw in {"telemetry", "sensor", "sensor_reading", "reading"}:
+            category = "telemetry"
+        else:
+            category = "physical"
+
+        # Normalize target and parameter aliases
+        target = request.target
+        params: dict[str, float | str | bool] = dict(request.parameters)
+
+        if target in {"battery_soc", "soc", "soc_sensor"}:
+            target = "soc_sensor_2"
+            category = "telemetry"
+            if "reported_soc" in params and "value" not in params:
+                params["value"] = params.pop("reported_soc")
+
+        if target == "solar" and "solar_factor" in params and "factor" not in params:
+            params["factor"] = params["solar_factor"]
+
+        if target == "water_recovery" and "throughput_factor" in params and "factor" not in params:
+            params["factor"] = params["throughput_factor"]
+
+        fault_id = f"manual_{target}_{current_step}_{len(run.faults.faults)}"
+        fault = FaultConfig(
+            id=fault_id,
+            category=category,
+            target=target,
+            start_step=current_step,
+            end_step=end_step,
+            parameters=params,
+        )
+        run.faults.faults.append(fault)
+        run._record(Event(
+            f"injected-{fault_id}", current_step, "manual_fault",
+            f"inject {target}", [f"MANUAL_FAULT_{target.upper()}"],
+            f"Operator manually injected {category} fault on {target} ({params}).",
+            {"parameters": params, "category": category, "target": target}, run.manager.mode
+        ))
+        return {
+            "status": "ok",
+            "fault_id": fault_id,
+            "step": current_step,
+            "category": category,
+            "target": target,
+            "parameters": params,
+        }
+
+    @app.post("/api/simulations/{run_id}/faults/clear")
+    def clear_faults(run_id: str) -> dict[str, object]:
+        run = store.get(run_id)
+        current_step = run.simulator.state_for_evaluation.step
+        cleared_count = 0
+        for fault in run.faults.faults:
+            if fault.id.startswith("manual_") or fault.id.startswith("gui_"):
+                if fault.end_step is None or fault.end_step > current_step:
+                    fault.end_step = current_step
+                    cleared_count += 1
+        run._record(Event(
+            f"clear-manual-faults-{current_step}", current_step, "manual_fault",
+            "clear faults", ["CLEAR_MANUAL_FAULTS"],
+            f"Operator cleared {cleared_count} active manually injected fault(s).",
+            {"cleared_count": cleared_count}, run.manager.mode
+        ))
+        return {"status": "ok", "cleared_count": cleared_count, "step": current_step}
+
+    @app.post("/api/simulations/{run_id}/tasks/add")
+    def add_task(run_id: str, request: AddTaskRequest) -> dict[str, object]:
+        run = store.get(run_id)
+        current_step = run.simulator.state_for_evaluation.step
+        if request.id in run.ledger.tasks:
+            raise HTTPException(400, detail={"code": "DUPLICATE_TASK_ID", "message": f"Task '{request.id}' already exists."})
+        task_cfg = TaskConfig(
+            id=request.id,
+            power_kw=request.power_kw,
+            duration_steps=request.duration_steps,
+            priority=request.priority,
+            release_step=current_step,
+            deadline_step=request.deadline_step or (current_step + request.duration_steps + 10),
+            hard_deadline=request.hard_deadline,
+        )
+        run.config.tasks.append(task_cfg)
+        run.ledger.tasks[task_cfg.id] = MissionTask(task_cfg)
+        run._record(Event(
+            f"add-task-{task_cfg.id}-{current_step}", current_step, "task",
+            "add task", ["DYNAMIC_TASK_INJECTION"],
+            f"Operator dynamically added mission task '{task_cfg.id}' ({task_cfg.power_kw} kW, {task_cfg.duration_steps} steps).",
+            {"task_id": task_cfg.id, "power_kw": task_cfg.power_kw}, run.manager.mode
+        ))
+        return {"status": "ok", "task_id": task_cfg.id, "step": current_step}
+
+    @app.get("/api/simulations/{run_id}/cascades")
+    def cascades(run_id: str) -> dict[str, object]:
+        from .cascade import CascadeAnalyzer
+        run = store.get(run_id)
+        analyzer = CascadeAnalyzer(run)
+        return {
+            "graph": analyzer.build_graph(),
+            "summaries": [s.to_dict() for s in analyzer.summarize_cascades()],
+        }
+
     return app
+
 
 
 app = create_app()

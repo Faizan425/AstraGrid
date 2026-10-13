@@ -49,7 +49,7 @@ class FaultEngine:
         values: dict[str, object] = Capability().__dict__.copy()
         for fault in self.active(step, "physical"):
             p = fault.parameters
-            factor = float(p.get("factor", 1.0))
+            factor = float(p.get("factor", p.get("solar_factor", p.get("throughput_factor", 1.0))))
             if fault.target == "solar": values["solar_factor"] = float(values["solar_factor"]) * factor
             elif fault.target == "battery":
                 values["battery_capacity_factor"] = float(values["battery_capacity_factor"]) * float(p.get("capacity_factor", factor))

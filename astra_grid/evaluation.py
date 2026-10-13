@@ -306,3 +306,13 @@ def run_all(output_dir: str | Path, steps: int | None = None) -> list[dict[str, 
     report = benchmark(steps=steps)
     export_benchmark(report, output_dir)
     return list(report["runs"])
+
+
+from .cascade import (  # noqa: E402
+    CascadeAnalyzer,
+    CascadeEdge,
+    CascadeNode,
+    CascadeRelationship,
+    CascadeSummary,
+)
+

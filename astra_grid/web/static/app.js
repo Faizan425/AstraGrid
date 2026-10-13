@@ -146,6 +146,33 @@
     canvasBattery: document.getElementById('canvas-battery'),
     canvasResources: document.getElementById('canvas-resources'),
     canvasThermal: document.getElementById('canvas-thermal'),
+
+    // Fault & Task Injections
+    btnFaultSolar: document.getElementById('btn-fault-solar'),
+    btnFaultByzantine: document.getElementById('btn-fault-byzantine'),
+    btnFaultBattery: document.getElementById('btn-fault-battery'),
+    btnFaultWater: document.getElementById('btn-fault-water'),
+    btnFaultClear: document.getElementById('btn-fault-clear'),
+    btnOpenTaskModal: document.getElementById('btn-open-task-modal'),
+    modalAddTask: document.getElementById('modal-add-task'),
+    btnCloseTaskModal: document.getElementById('btn-close-task-modal'),
+    btnCancelTask: document.getElementById('btn-cancel-task'),
+    formAddTask: document.getElementById('form-add-task'),
+    taskInputId: document.getElementById('task-input-id'),
+    taskInputPriority: document.getElementById('task-input-priority'),
+    taskInputPower: document.getElementById('task-input-power'),
+    taskInputDuration: document.getElementById('task-input-duration'),
+    taskInputRelease: document.getElementById('task-input-release'),
+    taskInputDeadline: document.getElementById('task-input-deadline'),
+
+    // Cascade Tab Elements
+    btnRefreshCascades: document.getElementById('btn-refresh-cascades'),
+    cascadeCount: document.getElementById('cascade-count'),
+    cascadeEnergyWater: document.getElementById('cascade-energy-water'),
+    cascadeMaxDepth: document.getElementById('cascade-max-depth'),
+    cascadeRoots: document.getElementById('cascade-roots'),
+    cascadeChainList: document.getElementById('cascade-chain-list'),
+    cascadeGraphCanvas: document.getElementById('cascade-graph-canvas'),
   };
 
   // --- API Utilities ---
@@ -300,6 +327,8 @@
       renderAll(data);
       if (state.activeTab === 'tab-replay') {
         loadReplayData();
+      } else if (state.activeTab === 'tab-cascade') {
+        loadCascadeAnalysis();
       }
     } catch (err) {
       console.error('Error refreshing full view:', err);
@@ -978,6 +1007,209 @@
   }
 
   // --- Tab Navigation Setup ---
+  // --- Manual Fault Injections ---
+  async function injectFault(target, parameters, category = 'physical', durationSteps = 12) {
+    if (!state.currentRunId) await initSimulation();
+    if (!state.currentRunId) return;
+
+    try {
+      await apiFetch(`/api/simulations/${state.currentRunId}/faults/inject`, {
+        method: 'POST',
+        body: JSON.stringify({
+          target: target,
+          parameters: parameters,
+          category: category,
+          duration_steps: durationSteps,
+        }),
+      });
+      await refreshFullView();
+    } catch (err) {
+      alert(`Fault injection failed: ${err.message}`);
+    }
+  }
+
+  async function clearInjectedFaults() {
+    if (!state.currentRunId) return;
+    try {
+      await apiFetch(`/api/simulations/${state.currentRunId}/faults/clear`, {
+        method: 'POST',
+      });
+      await refreshFullView();
+    } catch (err) {
+      alert(`Failed to clear faults: ${err.message}`);
+    }
+  }
+
+  // --- Dynamic Mission Task Handling ---
+  async function handleAddTaskSubmit(e) {
+    e.preventDefault();
+    if (!state.currentRunId) await initSimulation();
+    if (!state.currentRunId) return;
+
+    const taskId = el.taskInputId.value.trim();
+    const priority = parseInt(el.taskInputPriority.value, 10);
+    const powerKw = parseFloat(el.taskInputPower.value);
+    const duration = parseInt(el.taskInputDuration.value, 10);
+    const release = parseInt(el.taskInputRelease.value, 10);
+    const deadline = parseInt(el.taskInputDeadline.value, 10);
+
+    if (!taskId) return;
+
+    try {
+      await apiFetch(`/api/simulations/${state.currentRunId}/tasks/add`, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: taskId,
+          power_kw: powerKw,
+          duration_steps: duration,
+          priority: priority,
+          release_step: release,
+          deadline_step: deadline,
+          hard_deadline: priority === 1,
+        }),
+      });
+      if (el.modalAddTask.close) el.modalAddTask.close();
+      el.formAddTask.reset();
+      await refreshFullView();
+    } catch (err) {
+      alert(`Task addition failed: ${err.message}`);
+    }
+  }
+
+  // --- Cross-Resource Cascade Analysis ---
+  async function loadCascadeAnalysis() {
+    if (!state.currentRunId) return;
+    try {
+      const data = await apiFetch(`/api/simulations/${state.currentRunId}/cascades`);
+      renderCascadeAnalysis(data);
+    } catch (err) {
+      console.error('Error loading cascade analysis:', err);
+    }
+  }
+
+  function renderCascadeAnalysis(data) {
+    const summaries = data.summaries || [];
+    const graph = data.graph || { nodes: [], edges: [] };
+
+    const count = summaries.length;
+    const energyWaterCount = summaries.filter(s => s.impacted_subsystems?.includes('water') && (s.impacted_subsystems?.includes('energy') || s.root_subsystem === 'energy')).length;
+    const maxDepth = summaries.reduce((m, s) => Math.max(m, s.depth || 0), 0);
+    const roots = new Set(summaries.map(s => s.root_cause)).size;
+
+    if (el.cascadeCount) el.cascadeCount.textContent = count;
+    if (el.cascadeEnergyWater) el.cascadeEnergyWater.textContent = energyWaterCount;
+    if (el.cascadeMaxDepth) el.cascadeMaxDepth.textContent = maxDepth;
+    if (el.cascadeRoots) el.cascadeRoots.textContent = roots;
+
+    if (count === 0) {
+      if (el.cascadeChainList) {
+        el.cascadeChainList.innerHTML = `<div class="text-muted text-center" style="padding: 24px;">No cross-resource cascades detected. Subsystems currently within decoupled margins.</div>`;
+      }
+      if (el.cascadeGraphCanvas) {
+        el.cascadeGraphCanvas.innerHTML = `<div class="text-muted text-center" style="padding: 24px;">Run a scenario with solar drop, byzantine sensors, or constrained water recovery to trace propagation.</div>`;
+      }
+      return;
+    }
+
+    if (el.cascadeChainList) {
+      el.cascadeChainList.innerHTML = summaries.map((s) => {
+        const rootColor = s.root_subsystem === 'energy' ? 'var(--yellow)' : s.root_subsystem === 'water' ? 'var(--blue)' : 'var(--purple)';
+        const nodesHtml = (s.nodes || []).map((n, i) => {
+          const nodeClass = n.subsystem === 'energy' ? 'node-energy' : n.subsystem === 'water' ? 'node-water' : 'node-task';
+          const icon = n.subsystem === 'energy' ? '⚡' : n.subsystem === 'water' ? '🌊' : '⛑';
+          return `
+            <div class="cascade-step-node">
+              <span class="cascade-node-icon ${nodeClass}">${icon}</span>
+              <div>
+                <span class="mono" style="color: var(--text-muted); font-size: 11px;">STEP ${String(n.step).padStart(2, '0')}:</span>
+                <strong>${escapeHtml(n.description)}</strong>
+                <span class="badge badge-sm" style="font-size: 9px; margin-left: 6px;">${n.severity || 'WARN'}</span>
+              </div>
+            </div>
+            ${i < s.nodes.length - 1 ? '<div class="cascade-arrow">&darr; propagates to</div>' : ''}
+          `;
+        }).join('');
+
+        return `
+          <div class="cascade-chain-card">
+            <div class="cascade-chain-header">
+              <div>
+                <span class="cascade-root-badge" style="border-color: ${rootColor}; color: ${rootColor};">${escapeHtml(s.root_cause)}</span>
+                <span class="mono" style="font-size: 11px; margin-left: 8px; color: var(--text-muted);">Step ${s.start_step} &rarr; ${s.end_step} (Depth: ${s.depth})</span>
+              </div>
+            </div>
+            <p style="font-size: 12px; color: var(--text-main); margin: 8px 0 12px 0; line-height: 1.4;">${escapeHtml(s.narrative)}</p>
+            <div class="cascade-chain-flow">
+              ${nodesHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    renderCascadeGraph(graph);
+  }
+
+  function renderCascadeGraph(graph) {
+    if (!el.cascadeGraphCanvas) return;
+    const nodes = graph.nodes || [];
+    const edges = graph.edges || [];
+
+    if (nodes.length === 0) {
+      el.cascadeGraphCanvas.innerHTML = `<div class="text-muted text-center" style="padding: 24px;">No cascade nodes in topology graph.</div>`;
+      return;
+    }
+
+    const width = 640;
+    const height = Math.max(340, nodes.length * 60);
+    const nodeMap = new Map();
+
+    const nodeElements = nodes.map((n, idx) => {
+      const y = 40 + idx * 55;
+      const x = n.subsystem === 'energy' ? 120 : n.subsystem === 'water' ? 440 : 280;
+      nodeMap.set(n.id, { x, y, node: n });
+      const stroke = n.subsystem === 'energy' ? '#f59e0b' : n.subsystem === 'water' ? '#3b82f6' : '#a855f7';
+      const fill = n.subsystem === 'energy' ? 'rgba(245, 158, 11, 0.15)' : n.subsystem === 'water' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(168, 85, 247, 0.15)';
+      return `
+        <g class="graph-node-group" transform="translate(${x}, ${y})">
+          <rect x="-90" y="-18" width="180" height="36" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
+          <text x="-80" y="-2" fill="#f1f5f9" font-size="10" font-weight="bold" font-family="monospace">S${n.step} [${n.subsystem.toUpperCase()}]</text>
+          <text x="-80" y="10" fill="#94a3b8" font-size="9" font-family="sans-serif">${escapeHtml(n.resource || n.id).substring(0, 24)}</text>
+        </g>
+      `;
+    }).join('');
+
+    const edgeElements = edges.map((e) => {
+      const src = nodeMap.get(e.source);
+      const tgt = nodeMap.get(e.target);
+      if (!src || !tgt) return '';
+      return `
+        <g class="graph-edge-group">
+          <line x1="${src.x}" y1="${src.y}" x2="${tgt.x}" y2="${tgt.y}" stroke="#00f0ff" stroke-width="2" stroke-dasharray="4" marker-end="url(#arrowhead)"/>
+          <text x="${(src.x + tgt.x) / 2 + 8}" y="${(src.y + tgt.y) / 2}" fill="#38bdf8" font-size="8" font-family="monospace">${escapeHtml(e.relation || '')}</text>
+        </g>
+      `;
+    }).join('');
+
+    el.cascadeGraphCanvas.innerHTML = `
+      <svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow: visible;">
+        <defs>
+          <marker id="arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <polygon points="0 0, 7 3.5, 0 7" fill="#00f0ff" />
+          </marker>
+        </defs>
+        <g>${edgeElements}</g>
+        <g>${nodeElements}</g>
+      </svg>
+    `;
+  }
+
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return String(str || '');
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // --- Tab Navigation Setup ---
   function setupTabs() {
     const tabButtons = document.querySelectorAll('.nav-tab');
     tabButtons.forEach((btn) => {
@@ -996,6 +1228,8 @@
           renderCharts(state.fullViewData);
         } else if (targetTab === 'tab-replay') {
           loadReplayData();
+        } else if (targetTab === 'tab-cascade') {
+          loadCascadeAnalysis();
         }
       });
     });
@@ -1009,6 +1243,51 @@
     el.btnAutoPlay.addEventListener('click', toggleAutoPlay);
     el.btnRunAll.addEventListener('click', runAllSimulation);
     el.btnRunComparison.addEventListener('click', runMatchedComparison);
+
+    // Operator Fault Injection Chips
+    if (el.btnFaultSolar) {
+      el.btnFaultSolar.addEventListener('click', () => injectFault('solar', { factor: 0.5, solar_factor: 0.5 }, 'physical', 12));
+    }
+    if (el.btnFaultByzantine) {
+      el.btnFaultByzantine.addEventListener('click', () => injectFault('soc_sensor_2', { value: 0.75, reported_soc: 0.75 }, 'telemetry', 12));
+    }
+    if (el.btnFaultBattery) {
+      el.btnFaultBattery.addEventListener('click', () => injectFault('battery', { capacity_factor: 0.5, discharge_factor: 0.5, factor: 0.5 }, 'physical', 12));
+    }
+    if (el.btnFaultWater) {
+      el.btnFaultWater.addEventListener('click', () => injectFault('water_recovery', { factor: 0.0, throughput_factor: 0.0 }, 'physical', 12));
+    }
+    if (el.btnFaultClear) {
+      el.btnFaultClear.addEventListener('click', clearInjectedFaults);
+    }
+
+    // Dynamic Mission Task Modal & Submission
+    if (el.btnOpenTaskModal && el.modalAddTask) {
+      el.btnOpenTaskModal.addEventListener('click', () => {
+        if (el.modalAddTask.showModal) el.modalAddTask.showModal();
+        else el.modalAddTask.style.display = 'block';
+      });
+    }
+    if (el.btnCloseTaskModal && el.modalAddTask) {
+      el.btnCloseTaskModal.addEventListener('click', () => {
+        if (el.modalAddTask.close) el.modalAddTask.close();
+        else el.modalAddTask.style.display = 'none';
+      });
+    }
+    if (el.btnCancelTask && el.modalAddTask) {
+      el.btnCancelTask.addEventListener('click', () => {
+        if (el.modalAddTask.close) el.modalAddTask.close();
+        else el.modalAddTask.style.display = 'none';
+      });
+    }
+    if (el.formAddTask) {
+      el.formAddTask.addEventListener('submit', handleAddTaskSubmit);
+    }
+
+    // Cascades Refresh
+    if (el.btnRefreshCascades) {
+      el.btnRefreshCascades.addEventListener('click', loadCascadeAnalysis);
+    }
 
     // Replay controls
     el.replayScrubber.addEventListener('input', (e) => {
@@ -1046,3 +1325,4 @@
     initSimulation();
   });
 })();
+

@@ -132,4 +132,12 @@ class HabitatSimulator:
         self._state.step += 1
         if self._state.oxygen_kg <= 0 or self._state.water_kg <= 0 or critical_shortfall > 0:
             self._state.terminal = self._state.terminal or (self._state.oxygen_kg <= 0 or self._state.water_kg <= 0)
-        return Transition(before, self._state.copy(), solar, backup, charge_input_kw, discharge, loads.total_kw, supplied, critical_shortfall, noncritical_shortfall, resource_shortfalls, ";".join(errors) or None)
+        actual_water_recovered_kg = water_recovered * dt
+        actual_water_demand_kg = (life.water_demand_kgph + oxygen_water) * dt
+        recovery_power_kw = life.water_recovery_kw if action.water_recovery_on and cap.water_factor > 0 and supplied >= loads.critical_kw else 0.0
+        return Transition(
+            before, self._state.copy(), solar, backup, charge_input_kw, discharge,
+            loads.total_kw, supplied, critical_shortfall, noncritical_shortfall,
+            resource_shortfalls, ";".join(errors) or None,
+            actual_water_recovered_kg, actual_water_demand_kg, recovery_power_kw
+        )

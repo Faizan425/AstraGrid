@@ -129,3 +129,6 @@ class Transition:
     noncritical_shortfall_kw: float
     resource_shortfalls: dict[str, float]
     transition_error: str | None = None
+    water_recovered_kg: float = 0.0
+    water_demand_kg: float = 0.0
+    water_recovery_power_kw: float = 0.0

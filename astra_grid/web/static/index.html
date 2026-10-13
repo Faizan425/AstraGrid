@@ -94,6 +94,8 @@
           <select id="select-controller" aria-label="Select Controller">
             <option value="astragrid">AstraGrid (Rolling-Horizon MILP)</option>
             <option value="baseline">Baseline (Priority Heuristic)</option>
+            <option value="rule_based">Rule-Based Resource-Aware Policy</option>
+            <option value="fixed_schedule">Fixed-Schedule Baseline</option>
             <option value="compare">Paired Comparison (AstraGrid vs Baseline)</option>
           </select>
         </div>
@@ -139,6 +141,38 @@
       </div>
     </div>
   </section>
+
+  <!-- Interactive Manual Fault Injection & Workload Ribbon -->
+  <section class="fault-deck" aria-label="Manual Fault Injection and Workload Operations">
+    <div class="fault-deck-label">
+      <span class="status-indicator-dot online"></span>
+      <span>MANUAL FAULT INJECTION:</span>
+    </div>
+    <div class="fault-chips">
+      <button class="chip-btn chip-yellow" id="btn-fault-solar" title="Reduce solar generation by 50% immediately">
+        ⚡ Solar Drop 50%
+      </button>
+      <button class="chip-btn chip-amber" id="btn-fault-byzantine" title="Inject Byzantine SOC sensor reading of 75%">
+        ◉ Byzantine SOC (0.75)
+      </button>
+      <button class="chip-btn chip-red" id="btn-fault-battery" title="Degrade battery capacity and discharge factor by 50%">
+        ▱ Battery Degrade
+      </button>
+      <button class="chip-btn chip-blue" id="btn-fault-water" title="Fail water recovery system (0% throughput)">
+        🌊 Water Recovery Outage
+      </button>
+      <button class="chip-btn chip-ghost" id="btn-fault-clear" title="Clear all manually injected operator faults">
+        🧹 Clear Injected
+      </button>
+    </div>
+    <div class="task-insert-group">
+      <button class="btn btn-sm btn-outline" id="btn-open-task-modal" title="Add a custom dynamic mission task">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        + ADD TASK
+      </button>
+    </div>
+  </section>
+
 
   <!-- Main Layout Grid -->
   <main class="app-main">
@@ -337,6 +371,11 @@
       <button class="nav-tab" data-tab="tab-replay" id="tabbtn-replay">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/><line x1="19" y1="3" x2="19" y2="21"/></svg>
         Step-by-Step Mission Replay
+      </button>
+
+      <button class="nav-tab" data-tab="tab-cascade" id="tabbtn-cascade">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Cross-Resource Cascades
       </button>
     </nav>
 
@@ -696,8 +735,111 @@
           </div>
         </div>
       </div>
+
+      <!-- Tab 7: Cross-Resource Cascade Graph & Flow Analysis -->
+      <div class="tab-pane" id="tab-cascade">
+        <div class="cascade-panel glass-panel">
+          <div class="cascade-header">
+            <div>
+              <h2 class="section-title">CROSS-RESOURCE CASCADE TRACING</h2>
+              <p class="section-subtitle">Coupled Electrical & Life-Support Dependency Propagation Analysis (Solar Drop &rarr; Recovery Deferral &rarr; Water Reserve Breaches)</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-cascades">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              REFRESH CASCADES
+            </button>
+          </div>
+
+          <!-- Cascade Summary KPI Cards -->
+          <div class="delta-cards-grid">
+            <div class="delta-card">
+              <span class="d-title">CROSS-RESOURCE CASCADES</span>
+              <span class="d-val mono" id="cascade-count">0</span>
+              <span class="d-sub">Multi-resource chains</span>
+            </div>
+            <div class="delta-card">
+              <span class="d-title">ENERGY &rarr; WATER PROPAGATIONS</span>
+              <span class="d-val mono" id="cascade-energy-water">0</span>
+              <span class="d-sub">Power-driven water impacts</span>
+            </div>
+            <div class="delta-card">
+              <span class="d-title">MAX CASCADE DEPTH</span>
+              <span class="d-val mono" id="cascade-max-depth">0</span>
+              <span class="d-sub">Hops across subsystems</span>
+            </div>
+            <div class="delta-card">
+              <span class="d-title">CASCADE ROOT CAUSES</span>
+              <span class="d-val mono" id="cascade-roots">0</span>
+              <span class="d-sub">Triggering failure events</span>
+            </div>
+          </div>
+
+          <!-- Cascade Event Chains & Graph Inspector -->
+          <div class="cascade-detail-grid">
+            <div class="cascade-list-panel glass-panel">
+              <h3 class="subsection-title">DETECTED PROPAGATION CHAINS</h3>
+              <div class="cascade-chain-list" id="cascade-chain-list">
+                <div class="text-muted text-center" style="padding: 24px;">No cascades detected or awaiting simulation execution.</div>
+              </div>
+            </div>
+            <div class="cascade-graph-panel glass-panel">
+              <h3 class="subsection-title">CASCADE TIMELINE & TOPOLOGY FLOW</h3>
+              <div class="cascade-graph-canvas" id="cascade-graph-canvas">
+                <div class="text-muted text-center" style="padding: 24px;">Run a simulation with faults or resource constraints to render cascade topology.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
+
+  <!-- Modal: Add Dynamic Mission Task -->
+  <dialog class="modal-dialog glass-panel" id="modal-add-task">
+    <div class="modal-header">
+      <h3 class="modal-title">INJECT DYNAMIC MISSION TASK</h3>
+      <button class="btn-icon" id="btn-close-task-modal" aria-label="Close modal">&times;</button>
+    </div>
+    <form id="form-add-task" class="modal-body">
+      <div class="form-row">
+        <label for="task-input-id">Task ID</label>
+        <input type="text" id="task-input-id" class="input-text" placeholder="task_emergency_01" required>
+      </div>
+      <div class="form-row">
+        <label for="task-input-priority">Priority</label>
+        <select id="task-input-priority" class="input-select">
+          <option value="CRITICAL">CRITICAL (Priority 1)</option>
+          <option value="HIGH">HIGH (Priority 2)</option>
+          <option value="MEDIUM" selected>MEDIUM (Priority 3)</option>
+          <option value="LOW">LOW (Priority 4)</option>
+        </select>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-row">
+          <label for="task-input-power">Power (kW)</label>
+          <input type="number" id="task-input-power" class="input-number" value="2.5" step="0.1" min="0.1" required>
+        </div>
+        <div class="form-row">
+          <label for="task-input-duration">Duration (Steps)</label>
+          <input type="number" id="task-input-duration" class="input-number" value="3" min="1" max="100" required>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-row">
+          <label for="task-input-release">Release Step</label>
+          <input type="number" id="task-input-release" class="input-number" value="0" min="0" required>
+        </div>
+        <div class="form-row">
+          <label for="task-input-deadline">Deadline Step</label>
+          <input type="number" id="task-input-deadline" class="input-number" value="12" min="1" required>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-task">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btn-submit-task">Inject Task</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>
